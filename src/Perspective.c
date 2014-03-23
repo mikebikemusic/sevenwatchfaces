@@ -20,7 +20,8 @@ static int32_t cosa, sina, cosb, sinb, cosc, sinc;
 static int hour;
 static int d[6];
 //static GRect fullScreenRect = { { 0, 0 }, { 144, 168 } };
-
+// Modification by Ron64: removed ststic table to resources
+uint16_t * ACOS_arr;
 static const uint16_t __ACOS[1001] = {
 	32768, 32108, 31834, 31624, 31447, 31291, 31150, 31020, 30899, 30785, 30678, 30576, 30478, 30384, 30293, 30206, 30122, 30040, 29960, 29883,
 	29807, 29734, 29662, 29592, 29523, 29455, 29389, 29324, 29260, 29198, 29136, 29075, 29016, 28957, 28899, 28842, 28785, 28730, 28675, 28621,
@@ -80,6 +81,8 @@ typedef struct {
 
 #define DIGIT(num, x, y) digit[(81*(num))+((y)*9)+(x)]
 
+static char * digit;
+/*
 static char digit[810] = {	 // 10 x 9 x 9
 	// 0
 	0,0,1,1,1,1,1,0,0,
@@ -191,36 +194,39 @@ static char digit[810] = {	 // 10 x 9 x 9
 	1,1,1,1,1,1,1,1,1,
 	1,1,1,1,1,1,1,1,0
 };
-
+*/
 static GPoint3 eye = { 0, 0, EYEZ };
 
-static inline float mySqrtf(const float x) {
-	const float xhalf = 0.5f*x;
-	union { float x; int i; 	} u;
-	u.x = x;
-	u.i = 0x5f3759df - (u.i >> 1);
-	return x*u.x*(1.5f - xhalf*u.x*u.x);
+#define iter1(N) try = root + (1 << (N)); if (n >= try << (N)) { n -= try << (N); root |= 2 << (N); }
+uint32_t Wilco_sqrt (uint32_t n)
+{
+	uint32_t root = 0, try;
+	iter1 (15); iter1 (14); iter1 (13); iter1 (12); iter1 (11);
+	iter1 (10); iter1 ( 9); iter1 ( 8); iter1 ( 7); iter1 ( 6);
+	iter1 ( 5); iter1 ( 4); iter1 ( 3); iter1 ( 2); iter1 ( 1); iter1 ( 0);
+	return root >> 1;
 }
 
 
-static inline int32_t myArccos(float x) {
-	if (x < -1.0) x = -1.0;
-	if (x > 1.0) x = 1.0;
+
+static inline int32_t myArccos(int16_t x) {
+	if (x < -500.0) x = -500.0;
+	if (x >  500.0) x = 500.0;
 	
-	int i = (int)(500.0*(x+1.0));
+	int i = x+500;
 	//	APP_LOG(APP_LOG_LEVEL_DEBUG, "myArccos(%4d->%3d)", (int)(x*1000), i);
 
-	return __ACOS[i];
+	return ACOS_arr[i];
 }
 
-static inline float length(const GPoint3 *v) {
-	return mySqrtf((float)(v->x*v->x + v->y*v->y + v->z*v->z));
+static inline int16_t length(const GPoint3 *v) {
+	return Wilco_sqrt(v->x*v->x + v->y*v->y + v->z*v->z);
 }
 
 static void angles(const GPoint3 *v, int32_t *ax, int32_t *ay, int32_t *az) {
-	float s = length(v);
-	*ax = myArccos((float)v->y/s) - TRIG_MAX_ANGLE/4;
-	*ay = myArccos((float)v->x/s) - TRIG_MAX_ANGLE/4;
+	int16_t s = length(v);
+	*ax = myArccos(500*v->y/s) - TRIG_MAX_ANGLE/4;
+	*ay = myArccos(500*v->x/s) - TRIG_MAX_ANGLE/4;
 	*az = 0;
 
 	//	APP_LOG(APP_LOG_LEVEL_DEBUG, "length(%d, %d, %d) = %d / angles : %d %d %d", v->x, v->y, v->z, (int)s, (int)*ax, (int)*ay, (int)*az);
@@ -342,6 +348,10 @@ static void handleAccel(AccelData *data, uint32_t num_samples) {
 
 void load_Perspective(void) {
 	time_t now;
+	ACOS_arr= malloc(1001*2);
+	resource_load(resource_get_handle(RESOURCE_ID_BIN_PRESP_ACOS), (uint8_t *)ACOS_arr, 1001*2);
+	digit= malloc(810);
+	resource_load(resource_get_handle(RESOURCE_ID_BIN_PRESP_DIG), (uint8_t *)digit, 810);
 	
 	time(&now);
 	handleTick(localtime(&now), 0);
@@ -353,6 +363,8 @@ void load_Perspective(void) {
 	tick_timer_service_subscribe(SECOND_UNIT, handleTick);
 	
 	accel_data_service_subscribe(0, handleAccel);
+	accel_service_set_sampling_rate(ACCEL_SAMPLING_10HZ);
+
 	timerCallback(NULL);
 	configRedraw();
 }
@@ -361,7 +373,8 @@ void unload_Perspective(void) {
 	app_timer_cancel(timer);
 	accel_data_service_unsubscribe();
 	tick_timer_service_unsubscribe();
+	free(ACOS_arr);
+	free(digit);
 	layer_destroy(layer);
 	//window_destroy(window);
 }
-
